@@ -1,12 +1,10 @@
 version: 2
 
-# Konum: models/staging/dunnhumby/dunnhumby_sources.yml
-
 sources:
   - name: raw
     database: fifth-howl-508817-h0
-    schema: dunnhumby_compale_journey   # DEĞİŞTİ (yazım: complete, büyük/küçük harf)
-    description: Dunnhumby Complete Journey ham verisi (2.500 hane, 102 hafta)
+    schema: raw
+    description: Dunnhumby Complete Journey ham verisi (2.500 hane, 102 hafta), Drive'dan kalıcı tabloya kopyalandı
     tables:
 
       - name: transaction_data
@@ -30,12 +28,12 @@ sources:
               - not_null
               - relationships:
                   arguments:
-                    to: source('raw', 'product')   # DEĞİŞTİ
+                    to: source('raw', 'product')
                     field: PRODUCT_ID
           - name: QUANTITY
             description: adet
           - name: SALES_VALUE
-            description: satış tutarı
+            description: satış tutarı (iade satırlarında 0 veya negatif, stg_'de temizleniyor)
           - name: STORE_ID
             description: mağaza kimliği
           - name: RETAIL_DISC
@@ -43,7 +41,7 @@ sources:
           - name: TRANS_TIME
             description: işlem saati, HHMM
           - name: WEEK_NO
-            description: hafta numarası
+            description: hafta numarası (1–102)
           - name: COUPON_DISC
             description: üretici kupon indirimi (negatif)
           - name: COUPON_MATCH_DISC
@@ -60,7 +58,7 @@ sources:
           - name: MANUFACTURER
             description: üretici kodu
           - name: DEPARTMENT
-            description: reyon
+            description: reyon (KIOSK-GAS = akaryakıt)
           - name: BRAND
             description: National / Private
           - name: COMMODITY_DESC
@@ -110,8 +108,12 @@ sources:
                     values: ['TypeA', 'TypeB', 'TypeC']
           - name: START_DAY
             description: başlangıç günü (gün sayacı)
+            data_tests:
+              - not_null
           - name: END_DAY
             description: bitiş günü (gün sayacı)
+            data_tests:
+              - not_null
 
       - name: campaign_table
         description: hangi hanenin hangi kampanyayı aldığı
@@ -130,8 +132,10 @@ sources:
               - not_null
               - relationships:
                   arguments:
-                    to: source('raw', 'campaign_desc')   # DEĞİŞTİ
+                    to: source('raw', 'campaign_desc')
                     field: CAMPAIGN
+          - name: DESCRIPTION
+            description: kampanya tipi
 
       - name: coupon
         description: kampanya başına kupon ve geçerli olduğu ürünler
@@ -140,7 +144,7 @@ sources:
               arguments:
                 column_name: "concat(cast(COUPON_UPC as string), '-', cast(PRODUCT_ID as string), '-', cast(CAMPAIGN as string))"
               config:
-                severity: warn   # ham veride tekrar var, stg_coupons'ta temizleniyor
+                severity: warn   # ham veride 5.164 tekrar var, stg_coupons'ta temizleniyor
         columns:
           - name: COUPON_UPC
             description: kupon kimliği
@@ -156,7 +160,7 @@ sources:
               - not_null
               - relationships:
                   arguments:
-                    to: source('raw', 'campaign_desc')   # DEĞİŞTİ
+                    to: source('raw', 'campaign_desc')
                     field: CAMPAIGN
 
       - name: coupon_redempt
@@ -180,7 +184,7 @@ sources:
               - not_null
               - relationships:
                   arguments:
-                    to: source('raw', 'campaign_desc')   # DEĞİŞTİ
+                    to: source('raw', 'campaign_desc')
                     field: CAMPAIGN
 
       - name: causal_data
