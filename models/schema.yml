@@ -32,16 +32,24 @@ sources:
                     field: PRODUCT_ID
           - name: QUANTITY
             description: adet
+            data_tests:
+              - not_null   
           - name: SALES_VALUE
-            description: satış tutarı (iade satırlarında 0 veya negatif, stg_'de temizleniyor)
+            description: satış tutarı 
+            data_tests:
+              - not_null   
           - name: STORE_ID
             description: mağaza kimliği
+            data_tests:
+              - not_null   
           - name: RETAIL_DISC
-            description: mağaza indirimi (negatif)
+            description: mağaza indirimi (negatif; 36 satırda pozitif, stg_'de düzeltiliyor)
           - name: TRANS_TIME
             description: işlem saati, HHMM
           - name: WEEK_NO
             description: hafta numarası (1–102)
+            data_tests:
+              - not_null   
           - name: COUPON_DISC
             description: üretici kupon indirimi (negatif)
           - name: COUPON_MATCH_DISC
@@ -59,17 +67,27 @@ sources:
             description: üretici kodu
           - name: DEPARTMENT
             description: reyon (KIOSK-GAS = akaryakıt)
+            data_tests:
+              - not_null:   
+                  config:
+                    severity: warn
           - name: BRAND
             description: National / Private
+            data_tests:
+              - accepted_values:   
+                  arguments:
+                    values: ['National', 'Private']
+                  config:
+                    severity: warn
           - name: COMMODITY_DESC
-            description: ürün grubu
+            description: ürün grubu (sepet analizinin birimi)
           - name: SUB_COMMODITY_DESC
             description: alt ürün grubu
           - name: CURR_SIZE_OF_PRODUCT
-            description: ürün boyutu
+            description: ürün boyutu (yaklaşık %33'ü boş)
 
       - name: hh_demographic
-        description: hane demografisi (2.500 hanenin 801'i)
+        description: hane demografisi (2.500 hanenin 801'i, modellere girmiyor)
         columns:
           - name: household_key
             description: hane anahtarı
@@ -83,9 +101,9 @@ sources:
           - name: INCOME_DESC
             description: gelir aralığı
           - name: HOMEOWNER_DESC
-            description: ev sahipliği
+            description: ev sahipliği (Unknown değerler stg_'de NULL yapılıyor)
           - name: HH_COMP_DESC
-            description: hane kompozisyonu
+            description: hane kompozisyonu (Unknown değerler stg_'de NULL yapılıyor)
           - name: HOUSEHOLD_SIZE_DESC
             description: hane büyüklüğü
           - name: KID_CATEGORY_DESC
@@ -116,7 +134,7 @@ sources:
               - not_null
 
       - name: campaign_table
-        description: hangi hanenin hangi kampanyayı aldığı
+        description: hangi hanenin hangi kampanyayı aldığı (sınıflandırma modelinin satır tabanı)
         data_tests:
           - unique:
               arguments:
@@ -136,6 +154,10 @@ sources:
                     field: CAMPAIGN
           - name: DESCRIPTION
             description: kampanya tipi
+            data_tests:
+              - accepted_values:   
+                  arguments:
+                    values: ['TypeA', 'TypeB', 'TypeC']
 
       - name: coupon
         description: kampanya başına kupon ve geçerli olduğu ürünler
@@ -144,7 +166,7 @@ sources:
               arguments:
                 column_name: "concat(cast(COUPON_UPC as string), '-', cast(PRODUCT_ID as string), '-', cast(CAMPAIGN as string))"
               config:
-                severity: warn   # ham veride 5.164 tekrar var, stg_coupons'ta temizleniyor
+                severity: warn   
         columns:
           - name: COUPON_UPC
             description: kupon kimliği
@@ -154,6 +176,12 @@ sources:
             description: kuponun geçerli olduğu ürün
             data_tests:
               - not_null
+              - relationships:   
+                  arguments:
+                    to: source('raw', 'product')
+                    field: PRODUCT_ID
+                  config:
+                    severity: warn
           - name: CAMPAIGN
             description: kampanya kimliği
             data_tests:
@@ -164,12 +192,18 @@ sources:
                     field: CAMPAIGN
 
       - name: coupon_redempt
-        description: kupon kullanımları
+        description: kupon kullanımları (sınıflandırma hedefi REDEEMED buradan geliyor)
         columns:
           - name: household_key
             description: hane anahtarı
             data_tests:
               - not_null
+              - relationships:   
+                  arguments:
+                    to: source('raw', 'campaign_table')
+                    field: household_key
+                  config:
+                    severity: warn
           - name: DAY
             description: kullanım günü (gün sayacı)
             data_tests:
@@ -178,6 +212,12 @@ sources:
             description: kupon kimliği
             data_tests:
               - not_null
+              - relationships:   
+                  arguments:
+                    to: source('raw', 'coupon')
+                    field: COUPON_UPC
+                  config:
+                    severity: warn
           - name: CAMPAIGN
             description: kampanya kimliği
             data_tests:
