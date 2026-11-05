@@ -10,3 +10,4 @@ select
  
 from {{ ref('int_transactions_enriched') }}
 group by household_key, basket_id, cat
+

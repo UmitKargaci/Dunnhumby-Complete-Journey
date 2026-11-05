@@ -232,3 +232,178 @@ models:
         description: teşhirde mi (display_code'dan türetilmiş)
       - name: is_in_mailer
         description: broşürde mi (mailer_code'dan türetilmiş)
+ 
+  - name: int_transactions_enriched
+    description: >
+      İşlem satırı + ürün bilgisi (grain: işlem satırı). exclude_fuel değişkeni true ise
+      akaryakıt satırları dışarıda bırakılır. Tüm intermediate modellerin ana kaynağı.
+    columns:
+      - name: household_key
+        data_tests:
+          - not_null
+      - name: basket_id
+        data_tests:
+          - not_null
+      - name: product_id
+        data_tests:
+          - not_null
+      - name: sales_value
+        description: perakendecinin satıştan aldığı tutar (analizlerde harcama olarak kullanılır)
+        data_tests:
+          - not_null
+      - name: gross_value
+        description: indirim öncesi raf değeri = sales_value - retail_disc - coupon_match_disc
+      - name: total_discount
+        description: retail_disc + coupon_disc + coupon_match_disc (sıfır veya negatif)
+      - name: paid_value
+        description: müşterinin ödediği tutar = sales_value + coupon_disc
+      - name: has_coupon_disc
+        description: satırda kupon indirimi (üretici veya eşleştirilmiş) var mı
+      - name: cat
+        description: ana kategori; ürün eşleşmeyen satırlar OTHER olur
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['GROCERY', 'DRUG_GM', 'FRESH', 'FUEL', 'MISC', 'OTHER']
+      - name: is_fuel
+        data_tests:
+          - not_null
+      - name: is_private_brand
+        description: market markası (BRAND = Private) mı
+        data_tests:
+          - not_null
+ 
+  - name: int_baskets
+    description: sepet başına özet (grain household_key × basket_id)
+    data_tests:
+      - unique:
+          arguments:
+            column_name: "concat(cast(household_key as string), '-', cast(basket_id as string))"
+    columns:
+      - name: sales_value
+        data_tests:
+          - not_null
+      - name: category_count
+        description: sepetteki farklı kategori sayısı (sepet büyüklüğü ölçüsü)
+        data_tests:
+          - not_null
+      - name: discount_depth
+        description: toplam indirim / raf değeri (0 = indirimsiz)
+      - name: has_coupon_disc
+        description: sepette en az bir kuponlu satır var mı
+        data_tests:
+          - not_null
+ 
+  - name: int_basket_categories
+    description: sepet × kategori (grain household_key × basket_id × cat)
+    data_tests:
+      - unique:
+          arguments:
+            column_name: "concat(cast(household_key as string), '-', cast(basket_id as string), '-', cat)"
+ 
+  - name: int_category_pair_cooccurrence
+    description: aynı sepette birlikte görülen kategori çiftleri (cat_a < cat_b); support, confidence, lift
+    data_tests:
+      - unique:
+          arguments:
+            column_name: "concat(cat_a, '-', cat_b)"
+    columns:
+      - name: lift
+        description: 1'den büyükse kategoriler rastlantıdan daha sık birlikte alınıyor
+ 
+  - name: int_household_weekly_activity
+    description: hane × hafta aktivitesi (seyrek; alışveriş yapılmayan haftalar için satır yok)
+    data_tests:
+      - unique:
+          arguments:
+            column_name: "concat(cast(household_key as string), '-', cast(week_no as string))"
+ 
+  - name: int_household_future_spend
+    description: >
+      Hane başına cutoff_week'e kadarki geçmiş özellikler ve sonraki horizon_weeks haftalık
+      gelecek harcama (hedef). Zaman ayrımı sayesinde veri sızıntısı yoktur.
+    columns:
+      - name: household_key
+        data_tests:
+          - unique
+          - not_null
+      - name: past_sales
+        data_tests:
+          - not_null
+      - name: last_13w_sales_share
+        description: son 13 haftanın geçmiş toplam harcamadaki payı
+      - name: private_brand_share
+        description: market markası harcamasının, markası bilinen harcamaya oranı
+      - name: future_sales
+        description: hedef; cutoff sonrası horizon_weeks haftadaki toplam harcama (alışveriş yoksa 0)
+        data_tests:
+          - not_null
+ 
+  - name: int_household_category_mix
+    description: hane başına kategori payları ve sepet büyüklüğü (segmentasyon özellikleri, tüm dönem)
+    columns:
+      - name: household_key
+        data_tests:
+          - unique
+          - not_null
+      - name: avg_categories_per_basket
+        description: sepet başına ortalama kategori sayısı
+ 
+  - name: int_campaing_products
+    description: kampanyalardaki kupon kapsamındaki ürünler (grain campaign_id × product_id)
+    data_tests:
+      - unique:
+          arguments:
+            column_name: "concat(cast(campaign_id as string), '-', cast(product_id as string))"
+ 
+  - name: int_campaign_coupon_categories
+    description: kampanya kuponlarının kategori dağılımı (grain campaign_id × cat)
+    data_tests:
+      - unique:
+          arguments:
+            column_name: "concat(cast(campaign_id as string), '-', cat)"
+    columns:
+      - name: product_share
+        description: kampanyadaki kuponlu ürünlerin bu kategorideki payı
+ 
+  - name: int_household_campaign
+    description: >
+      Hane × kampanya (grain household_key × campaign_id). Hedef kampanya içindeki kupon kullanımı;
+      özellikler kampanya başlangıcından önceki davranıştan hesaplanır.
+    data_tests:
+      - unique:
+          arguments:
+            column_name: "concat(cast(household_key as string), '-', cast(campaign_id as string))"
+    columns:
+      - name: household_key
+        data_tests:
+          - not_null
+      - name: campaign_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_raw__campaign_desc')
+                field: campaign_id
+      - name: campaign_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['TypeA', 'TypeB', 'TypeC']
+      - name: redeemed
+        description: hane bu kampanyada en az bir kupon kullandı mı (hedef)
+        data_tests:
+          - not_null
+      - name: redemption_count
+        description: kampanyadaki kupon kullanım sayısı
+      - name: pre_coupon_basket_ratio
+        description: kampanya öncesi sepetlerin kaçı kuponlu
+      - name: pre_discount_depth
+        description: kampanya öncesi toplam indirim / raf değeri
+      - name: days_since_last_purchase
+        description: kampanya başlangıcında son alışverişten geçen gün (önceki alışveriş yoksa NULL)
+      - name: bought_coupon_product_before
+        description: kampanyanın kuponlu ürünlerinden birini başlangıçtan önce almış mı
+        data_tests:
+          - not_null     
