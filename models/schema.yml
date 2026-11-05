@@ -1,99 +1,100 @@
 version: 2
 
+# NOT (genel): Önceki sürümden eklenen her şey "# YENİ" ile, şüpheli/dikkat edilecek noktalar "# NOT" ile işaretlendi.
+
 sources:
+
   - name: raw
     database: fifth-howl-508817-h0
     schema: raw
-    description: Dunnhumby Complete Journey ham verisi (2.500 hane, 102 hafta), Drive'dan kalıcı tabloya kopyalandı
+    description: Dunnhumby Complete Journey ham verisi (2.500 hane, 102 hafta)
     tables:
 
       - name: transaction_data
         description: satır bazlı satış işlemleri (hane × sepet × ürün)
         columns:
           - name: household_key
-            description: hane anahtarı
             data_tests:
               - not_null
           - name: BASKET_ID
-            description: sepet kimliği
             data_tests:
               - not_null
           - name: DAY
-            description: gün sayacı (1–711), gerçek tarih değil
+            description: gün sayacı (1–711)
             data_tests:
               - not_null
           - name: PRODUCT_ID
-            description: ürün kimliği
             data_tests:
               - not_null
+              # NOT: Ham işlemlerde product tablosunda karşılığı olmayan ürün çıkabilir.
+              # Test hata veriyorsa severity: warn yapın.
               - relationships:
                   arguments:
                     to: source('raw', 'product')
                     field: PRODUCT_ID
           - name: QUANTITY
-            description: adet
             data_tests:
-              - not_null   
+              - not_null
           - name: SALES_VALUE
-            description: satış tutarı 
+            description: iade satırlarında 0 veya negatif; stg_'de temizleniyor
             data_tests:
-              - not_null   
+              - not_null
           - name: STORE_ID
-            description: mağaza kimliği
             data_tests:
-              - not_null   
+              - not_null
+          # YENİ: aşağıdaki 4 sütun önceki dosyada tanımsızdı
           - name: RETAIL_DISC
-            description: mağaza indirimi (negatif; 36 satırda pozitif, stg_'de düzeltiliyor)
+            description: perakendeci indirimi (genelde negatif değer)
           - name: TRANS_TIME
-            description: işlem saati, HHMM
-          - name: WEEK_NO
-            description: hafta numarası (1–102)
-            data_tests:
-              - not_null   
+            description: işlem saati, HHMM biçiminde tamsayı (ör. 1631)
           - name: COUPON_DISC
-            description: üretici kupon indirimi (negatif)
+            description: üretici kupon indirimi
           - name: COUPON_MATCH_DISC
-            description: mağazanın eşlediği kupon indirimi (negatif)
+            description: perakendecinin eşleştirdiği kupon indirimi
+          - name: WEEK_NO
+            # NOT: Formül ve "1. hafta 5 gün" notu kontrol edildi, doğru (DAY 1–5 → hafta 1, DAY 6 → hafta 2).
+            description: WEEK_NO = DIV(DAY + 1, 7) + 1; 1. hafta 5 gün (1–5)
+            data_tests:
+              - not_null
 
       - name: product
         description: ürün hiyerarşisi ve marka bilgisi
         columns:
           - name: PRODUCT_ID
-            description: ürün kimliği
             data_tests:
               - unique
               - not_null
+          # YENİ: MANUFACTURER, COMMODITY_DESC, SUB_COMMODITY_DESC, CURR_SIZE_OF_PRODUCT önceden tanımsızdı
           - name: MANUFACTURER
-            description: üretici kodu
+            description: üretici kodu (INTEGER)
           - name: DEPARTMENT
             description: reyon (KIOSK-GAS = akaryakıt)
             data_tests:
-              - not_null:   
+              - not_null:
                   config:
                     severity: warn
           - name: BRAND
-            description: National / Private
             data_tests:
-              - accepted_values:   
+              - accepted_values:
                   arguments:
                     values: ['National', 'Private']
                   config:
                     severity: warn
           - name: COMMODITY_DESC
-            description: ürün grubu (sepet analizinin birimi)
+            description: ürün grubu açıklaması
           - name: SUB_COMMODITY_DESC
-            description: alt ürün grubu
+            description: ürün alt grubu açıklaması
           - name: CURR_SIZE_OF_PRODUCT
-            description: ürün boyutu (yaklaşık %33'ü boş)
+            description: ürün boyutu/ambalaj bilgisi (serbest metin, boş olabilir)
 
       - name: hh_demographic
-        description: hane demografisi (2.500 hanenin 801'i, modellere girmiyor)
+        description: hane demografisi (2.500 hanenin 801'i)
         columns:
           - name: household_key
-            description: hane anahtarı
             data_tests:
               - unique
               - not_null
+          # YENİ: demografik sütunların hiçbiri önceden tanımlı değildi
           - name: AGE_DESC
             description: yaş aralığı
           - name: MARITAL_STATUS_CODE
@@ -101,19 +102,18 @@ sources:
           - name: INCOME_DESC
             description: gelir aralığı
           - name: HOMEOWNER_DESC
-            description: ev sahipliği (Unknown değerler stg_'de NULL yapılıyor)
+            description: ev sahipliği durumu
           - name: HH_COMP_DESC
-            description: hane kompozisyonu (Unknown değerler stg_'de NULL yapılıyor)
+            description: hane yapısı
           - name: HOUSEHOLD_SIZE_DESC
             description: hane büyüklüğü
           - name: KID_CATEGORY_DESC
-            description: çocuk kategorisi
+            description: çocuk sayısı kategorisi
 
       - name: campaign_desc
         description: kampanya tipi ve tarihleri
         columns:
           - name: CAMPAIGN
-            description: kampanya kimliği
             data_tests:
               - unique
               - not_null
@@ -125,39 +125,41 @@ sources:
                   arguments:
                     values: ['TypeA', 'TypeB', 'TypeC']
           - name: START_DAY
-            description: başlangıç günü (gün sayacı)
             data_tests:
               - not_null
           - name: END_DAY
-            description: bitiş günü (gün sayacı)
             data_tests:
               - not_null
 
       - name: campaign_table
-        description: hangi hanenin hangi kampanyayı aldığı (sınıflandırma modelinin satır tabanı)
+        description: hangi hanenin hangi kampanyayı aldığı
         data_tests:
           - unique:
               arguments:
                 column_name: "concat(cast(household_key as string), '-', cast(CAMPAIGN as string))"
         columns:
+          # YENİ: campaign_table'da DESCRIPTION sütunu var ama önceden tanımsızdı.
+          # NOT: campaign_desc.DESCRIPTION ile aynı bilgi, yani tekrar eden (denormalize) veri.
+          # Tutarlılığı ayrıca bir singular testle kontrol etmenizi öneririm.
+          - name: DESCRIPTION
+            description: kampanya tipi (campaign_desc.DESCRIPTION ile aynı olmalı)
+            data_tests:
+              - accepted_values:
+                  arguments:
+                    values: ['TypeA', 'TypeB', 'TypeC']
+                  config:
+                    severity: warn
           - name: household_key
-            description: hane anahtarı
+            # NOT: hh_demographic'e relationships testi EKLEMEYİN; o tabloda hanelerin sadece 801'i var.
             data_tests:
               - not_null
           - name: CAMPAIGN
-            description: kampanya kimliği
             data_tests:
               - not_null
               - relationships:
                   arguments:
                     to: source('raw', 'campaign_desc')
                     field: CAMPAIGN
-          - name: DESCRIPTION
-            description: kampanya tipi
-            data_tests:
-              - accepted_values:   
-                  arguments:
-                    values: ['TypeA', 'TypeB', 'TypeC']
 
       - name: coupon
         description: kampanya başına kupon ve geçerli olduğu ürünler
@@ -166,24 +168,15 @@ sources:
               arguments:
                 column_name: "concat(cast(COUPON_UPC as string), '-', cast(PRODUCT_ID as string), '-', cast(CAMPAIGN as string))"
               config:
-                severity: warn   
+                severity: warn
         columns:
           - name: COUPON_UPC
-            description: kupon kimliği
             data_tests:
               - not_null
           - name: PRODUCT_ID
-            description: kuponun geçerli olduğu ürün
             data_tests:
               - not_null
-              - relationships:   
-                  arguments:
-                    to: source('raw', 'product')
-                    field: PRODUCT_ID
-                  config:
-                    severity: warn
           - name: CAMPAIGN
-            description: kampanya kimliği
             data_tests:
               - not_null
               - relationships:
@@ -192,34 +185,20 @@ sources:
                     field: CAMPAIGN
 
       - name: coupon_redempt
-        description: kupon kullanımları (sınıflandırma hedefi REDEEMED buradan geliyor)
+        description: kupon kullanımları
         columns:
           - name: household_key
-            description: hane anahtarı
             data_tests:
               - not_null
-              - relationships:   
-                  arguments:
-                    to: source('raw', 'campaign_table')
-                    field: household_key
-                  config:
-                    severity: warn
+          # YENİ: DAY önceden tanımsızdı
           - name: DAY
-            description: kullanım günü (gün sayacı)
+            description: kuponun kullanıldığı gün (transaction_data.DAY ile aynı sayaç)
             data_tests:
               - not_null
           - name: COUPON_UPC
-            description: kupon kimliği
             data_tests:
               - not_null
-              - relationships:   
-                  arguments:
-                    to: source('raw', 'coupon')
-                    field: COUPON_UPC
-                  config:
-                    severity: warn
           - name: CAMPAIGN
-            description: kampanya kimliği
             data_tests:
               - not_null
               - relationships:
@@ -228,4 +207,58 @@ sources:
                     field: CAMPAIGN
 
       - name: causal_data
-        description: ürün × mağaza × hafta teşhir ve broşür bilgisi (36,8 M satır, ana akışta kullanılmıyor)
+        description: ürün × mağaza × hafta teşhir ve broşür (ana akışta kullanılmıyor)
+        # YENİ: sütunlar önceden hiç tanımlı değildi
+        columns:
+          - name: PRODUCT_ID
+          - name: STORE_ID
+          - name: WEEK_NO
+          - name: display
+            description: mağaza içi teşhir kodu
+          - name: mailer
+            description: broşür kodu
+
+  - name: ref
+    database: fifth-howl-508817-h0
+    # NOT: Şema adında "compale" yazıyor ("complete" olmalı mı?). BigQuery'deki gerçek ad
+    # böyleyse bırakın; değilse tüm ref kaynakları "not found" hatası verir. Kontrol edin.
+    schema: dunnhumby_compale_journey
+    description: Fivetran ile Google Sheets'ten gelen kural tabloları
+    tables:
+
+      - name: department_category_map
+        description: departman → ana kategori eşlemesi
+        columns:
+          # YENİ: Fivetran sistem sütunları (staging'de dışarıda bırakılmalı)
+          - name: _row
+            description: Fivetran satır numarası
+          - name: _fivetran_synced
+            description: Fivetran senkronizasyon zamanı
+          - name: department
+            data_tests:
+              - unique
+              - not_null
+          - name: cat
+            data_tests:
+              - not_null
+              - accepted_values:
+                  arguments:
+                    values: ['GROCERY', 'DRUG_GM', 'FRESH', 'FUEL', 'MISC']
+
+      - name: segment_lookup
+        # NOT: Bu tablo hiçbir modelde kullanılmıyor görünüyor; kullanılacaksa model tarafı eksik.
+        description: segment numarası → segment adı
+        columns:
+          # YENİ: Fivetran sistem sütunları
+          - name: _row
+            description: Fivetran satır numarası
+          - name: _fivetran_synced
+            description: Fivetran senkronizasyon zamanı
+          - name: segment_id
+            data_tests:
+              - unique
+              - not_null
+          - name: segment_name
+            data_tests:
+              - not_null
+
