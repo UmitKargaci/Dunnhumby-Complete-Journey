@@ -1,0 +1,234 @@
+version: 2
+ 
+# Staging modelleri: testler ve dokümantasyon (görsellerdeki güncel sütunlara göre).
+# NOT: Bu modeller başka bir yml dosyasında da tanımlıysa o tanımları silin; aynı model iki yerde olursa dbt hata verir.
+# NOT: dbt_utils gerektirmez; birleşik anahtar testleri concat yöntemiyle yazıldı.
+ 
+models:
+ 
+  - name: stg_raw__transaction_data
+    description: temizlenmiş işlem tablosu (iade ve sıfır miktarlı satırlar çıkarıldı)
+    columns:
+      - name: household_key
+        data_tests:
+          - not_null
+      - name: basket_id
+        data_tests:
+          - not_null
+      - name: product_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_raw__product')
+                field: product_id
+      - name: store_id
+        data_tests:
+          - not_null
+      - name: day
+        description: gün sayacı (1–711)
+        data_tests:
+          - not_null
+      - name: week_no
+        description: WEEK_NO = DIV(DAY + 1, 7) + 1; 1. hafta 5 gün
+        data_tests:
+          - not_null
+      - name: purchase_date
+        description: temsili tarih (1. gün = 2020-01-01)
+        data_tests:
+          - not_null
+      - name: trans_hour
+        description: işlem saati (0–23)
+      - name: trans_time
+        description: işlem saati (TIME)
+      - name: quantity
+        data_tests:
+          - not_null
+      - name: sales_value
+        # NOT: staging'de sales_value > 0 filtresi var; bunu doğrulayan test için tests/ altında singular test önerilir.
+        data_tests:
+          - not_null
+      - name: retail_disc
+        description: perakendeci indirimi (pozitif değerler 0'a çekilmiş)
+      - name: coupon_disc
+        description: üretici kupon indirimi
+      - name: coupon_match_disc
+        description: perakendecinin eşleştirdiği kupon indirimi
+ 
+  - name: stg_raw__product
+    description: ürün tablosu + kategori eşlemesi
+    columns:
+      - name: product_id
+        data_tests:
+          - unique
+          - not_null
+      - name: manufacturer
+        description: üretici kodu
+      - name: department
+        description: reyon (KIOSK-GAS = akaryakıt)
+      - name: cat
+        # NOT: 'OTHER' kaynak eşleme tablosunda yok; eşleşmeyen departmanlar için COALESCE ile atanıyor olmalı.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['GROCERY', 'DRUG_GM', 'FRESH', 'FUEL', 'MISC', 'OTHER']
+      - name: brand
+      - name: commodity_desc
+      - name: sub_commodity_desc
+      - name: curr_size_of_product
+ 
+  - name: stg_raw__hh_demographic
+    description: hane demografisi (2.500 hanenin yalnızca 801'i için kayıt var)
+    columns:
+      - name: household_key
+        data_tests:
+          - unique
+          - not_null
+          # NOT: transaction tablosuna relationships testi koymayın; 801 hane dışındakiler burada yok.
+      - name: age_desc
+      - name: marital_status_code
+        description: A = Married, B = Single, U = Unknown
+      - name: income_desc
+      - name: homeowner_desc
+      - name: hh_comp_desc
+      - name: household_size_desc
+      - name: kid_category_desc
+        description: None/Unknown değeri "çocuk yok" ile "bilinmiyor"u birleştirir
+      - name: marital_status
+        description: marital_status_code'un okunur karşılığı
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Married', 'Single', 'Unknown']
+              config:
+                severity: warn
+ 
+  - name: stg_raw__campaign_desc
+    description: kampanya tipi ve temsili başlangıç/bitiş tarihleri
+    columns:
+      - name: campaign_id
+        data_tests:
+          - unique
+          - not_null
+      - name: campaign_type
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['TypeA', 'TypeB', 'TypeC']
+      - name: start_day
+        data_tests:
+          - not_null
+      - name: end_day
+        data_tests:
+          - not_null
+      - name: start_date
+        data_tests:
+          - not_null
+      - name: end_date
+        data_tests:
+          - not_null
+      - name: duration_days
+        description: başlangıç ve bitiş günü dahil süre
+ 
+  - name: stg_raw__campaign_table
+    description: hane × kampanya eşlemesi
+    data_tests:
+      - unique:
+          arguments:
+            column_name: "concat(cast(household_key as string), '-', cast(campaign_id as string))"
+    columns:
+      - name: household_key
+        data_tests:
+          - not_null
+      - name: campaign_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_raw__campaign_desc')
+                field: campaign_id
+ 
+  - name: stg_raw__coupon
+    description: kampanya başına kupon ve geçerli olduğu ürünler
+    data_tests:
+      - unique:
+          arguments:
+            column_name: "concat(cast(coupon_upc as string), '-', cast(product_id as string), '-', cast(campaign as string))"
+          config:
+            severity: warn
+    columns:
+      - name: coupon_upc
+        data_tests:
+          - not_null
+      - name: product_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_raw__product')
+                field: product_id
+              config:
+                severity: warn
+      # NOT: Bu sütun şu an "campaign". Diğer modellerle tutarlılık için SQL'de campaign_id yapmanızı öneririm;
+      # yaparsanız bu bloktaki ve yukarıdaki unique testindeki adı da güncelleyin.
+      - name: campaign
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_raw__campaign_desc')
+                field: campaign_id
+ 
+  - name: stg_raw__coupon_redempt
+    description: kupon kullanımları (hane × gün × kupon × kampanya)
+    columns:
+      - name: household_key
+        data_tests:
+          - not_null
+      - name: day
+        data_tests:
+          - not_null
+      - name: week_no
+        description: kullanım gününün hafta numarası
+      - name: redemption_date
+        description: temsili tarih (1. gün = 2020-01-01)
+        data_tests:
+          - not_null
+      - name: coupon_upc
+        data_tests:
+          - not_null
+      # NOT: Bu sütun şu an "campaign" (bkz. stg_raw__coupon notu).
+      - name: campaign
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_raw__campaign_desc')
+                field: campaign_id
+ 
+  - name: stg_raw__causal_data
+    description: ürün × mağaza × hafta teşhir ve broşür bilgisi (ana akışta kullanılmıyor)
+    # NOT: Tablo büyük olduğu için unique ve relationships testleri bilerek eklenmedi.
+    columns:
+      - name: product_id
+        data_tests:
+          - not_null
+      - name: store_id
+        data_tests:
+          - not_null
+      - name: week_no
+        data_tests:
+          - not_null
+      - name: week_start_date
+        data_tests:
+          - not_null
+      - name: display_code
+        description: mağaza içi teşhir kodu
+      - name: mailer_code
+        description: broşür kodu
+      - name: is_on_display
+        description: teşhirde mi (display_code'dan türetilmiş)
+      - name: is_in_mailer
+        description: broşürde mi (mailer_code'dan türetilmiş)
