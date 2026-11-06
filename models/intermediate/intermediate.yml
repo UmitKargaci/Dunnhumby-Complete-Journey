@@ -310,7 +310,7 @@ models:
             column_name: "concat(cat_a, '-', cat_b)"
     columns:
       - name: lift
-        description: 1'den büyükse kategoriler rastlantıdan daha sık birlikte alınıyor
+        description: 1'den büyükse kategoriler rastlantıdan daha sık birlikte alınıyor ###
  
   - name: int_household_weekly_activity
     description: hane × hafta aktivitesi (seyrek; alışveriş yapılmayan haftalar için satır yok)
