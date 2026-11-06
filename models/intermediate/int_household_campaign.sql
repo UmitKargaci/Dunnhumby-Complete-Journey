@@ -59,7 +59,7 @@ pre_coupon_products as (
     inner join {{ ref('int_transactions_enriched') }} as t
         on  t.household_key = hc.household_key
         and t.day           < hc.start_day
-    inner join {{ ref('int_campaing_product') }} as cp
+    inner join {{ ref('int_campaign_product') }} as cp
         on  cp.campaign_id = hc.campaign_id
         and cp.product_id  = t.product_id
     group by hc.household_key, hc.campaign_id

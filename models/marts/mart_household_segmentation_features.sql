@@ -18,6 +18,6 @@ select
     d.household_size_desc,
     d.kid_category_desc
 
-from {{ ref('Int_household_category_mix') }} as m
+from {{ ref('int_household_category_mix') }} as m
 inner join {{ ref('mart_dim_household') }} as d
     on m.household_key = d.household_key

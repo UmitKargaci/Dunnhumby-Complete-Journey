@@ -3,4 +3,4 @@
 -- Demografi için dim_household'a bağlanın.
 
 select *
-from {{ ref('Int_household_campaign') }}
+from {{ ref('int_household_campaign') }}

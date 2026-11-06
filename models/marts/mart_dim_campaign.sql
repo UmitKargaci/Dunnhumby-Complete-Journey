@@ -17,7 +17,7 @@ households as (
         count(*)                       as targeted_households,
         countif(redeemed)              as redeemed_households,
         sum(redemption_count)          as redemption_count
-    from {{ ref('Int_household_campaign') }}
+    from {{ ref('int_household_campaign') }}
     group by campaign_id
 
 ),

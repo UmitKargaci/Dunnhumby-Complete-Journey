@@ -16,6 +16,6 @@ select
     d.household_size_desc,
     d.kid_category_desc
 
-from {{ ref('Int_household_future_spend') }} as f
+from {{ ref('int_household_future_spend') }} as f
 inner join {{ ref('mart_dim_household') }} as d
     on f.household_key = d.household_key
