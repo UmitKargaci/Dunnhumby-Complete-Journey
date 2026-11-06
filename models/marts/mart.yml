@@ -1,0 +1,251 @@
+version: 2
+
+# Mart modelleri: testler ve dokümantasyon.
+# Birleşik anahtar testleri dbt_utils gerektirmeden concat yöntemiyle yazıldı.
+
+models:
+
+  # ---------- core: boyutlar ----------
+
+  - name: dim_household
+    description: >
+      Hane boyutu (grain household_key). Hane evreni işlem, kampanya ve kupon kullanımı tablolarının birleşimidir.
+      Demografi yalnızca bir kısım hane için vardır; olmayanlar 'Not Available'.
+    columns:
+      - name: household_key
+        data_tests:
+          - unique
+          - not_null
+      - name: has_demographics
+        description: hane hh_demographic tablosunda var mı
+        data_tests:
+          - not_null
+      - name: marital_status
+        description: Married / Single / Unknown / Not Available
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Married', 'Single', 'Unknown', 'Not Available']
+              config:
+                severity: warn
+      - name: basket_count
+        description: toplam sepet sayısı (exclude_fuel = true iken akaryakıt sepetleri hariç)
+      - name: total_sales
+        description: toplam harcama (sales_value toplamı)
+
+  - name: dim_product
+    description: ürün boyutu (grain product_id)
+    columns:
+      - name: product_id
+        data_tests:
+          - unique
+          - not_null
+      - name: cat
+        data_tests:
+          - not_null
+      - name: is_fuel
+        data_tests:
+          - not_null
+      - name: is_private_brand
+        description: market markası (BRAND = Private) mı
+        data_tests:
+          - not_null
+
+  - name: dim_campaign
+    description: kampanya boyutu (grain campaign_id) ve kampanya düzeyinde özet ölçüler
+    columns:
+      - name: campaign_id
+        data_tests:
+          - unique
+          - not_null
+      - name: campaign_type
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['TypeA', 'TypeB', 'TypeC']
+      - name: household_redemption_rate
+        description: kampanyayı alan hanelerin kaçı en az bir kupon kullandı (0–1)
+
+  - name: dim_date
+    description: temsili tarih boyutu (grain day). 1. gün = 2020-01-01; tarihler gerçek takvimi yansıtmaz.
+    columns:
+      - name: day
+        data_tests:
+          - unique
+          - not_null
+      - name: date_day
+        data_tests:
+          - unique
+          - not_null
+      - name: week_no
+        data_tests:
+          - not_null
+      - name: is_partial_week
+        description: eksik gün içeren hafta (1. hafta 5 gün, son hafta eksik olabilir)
+
+  # ---------- core: fact tabloları ----------
+
+  - name: fct_transactions
+    description: işlem satırı fact tablosu (hane × sepet × ürün)
+    columns:
+      - name: household_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_household')
+                field: household_key
+      - name: product_id
+        # NOT: product tablosunda karşılığı olmayan ürünler olabilir, bu yüzden warn.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_product')
+                field: product_id
+              config:
+                severity: warn
+      - name: day
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: day
+      - name: sales_value
+        data_tests:
+          - not_null
+
+  - name: fct_baskets
+    description: sepet fact tablosu (grain household_key × basket_id)
+    data_tests:
+      - unique:
+          arguments:
+            column_name: "concat(cast(household_key as string), '-', cast(basket_id as string))"
+    columns:
+      - name: household_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_household')
+                field: household_key
+      - name: day
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: day
+      - name: category_count
+        description: sepetteki farklı kategori sayısı
+        data_tests:
+          - not_null
+
+  - name: fct_coupon_redemptions
+    description: kupon kullanımı fact tablosu (hane × gün × kupon × kampanya)
+    columns:
+      - name: household_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_household')
+                field: household_key
+      - name: campaign_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_campaign')
+                field: campaign_id
+      - name: day
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: day
+
+  - name: fct_household_campaign
+    description: >
+      Hane × kampanya fact tablosu (grain household_key × campaign_id). Hedef kampanyada kupon kullanımı,
+      özellikler kampanya başlangıcından önceki davranış.
+    data_tests:
+      - unique:
+          arguments:
+            column_name: "concat(cast(household_key as string), '-', cast(campaign_id as string))"
+    columns:
+      - name: household_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_household')
+                field: household_key
+      - name: campaign_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_campaign')
+                field: campaign_id
+      - name: redeemed
+        data_tests:
+          - not_null
+
+  # ---------- core: agregat martlar ----------
+
+  - name: mart_category_pairs
+    description: aynı sepette birlikte alınan kategori çiftleri (support, confidence, lift)
+    data_tests:
+      - unique:
+          arguments:
+            column_name: "concat(cat_a, '-', cat_b)"
+
+  - name: mart_campaign_coupon_categories
+    description: kampanya kuponlarının kategori dağılımı (grain campaign_id × cat)
+    data_tests:
+      - unique:
+          arguments:
+            column_name: "concat(cast(campaign_id as string), '-', cat)"
+
+  # ---------- ml: veri setleri ----------
+
+  - name: ml_household_spend_dataset
+    description: >
+      Gelecek harcama tahmini veri seti (grain household_key). Özellikler cutoff_week'e kadarki
+      veriden, hedef sonraki horizon_weeks haftadan hesaplanır.
+    columns:
+      - name: household_key
+        data_tests:
+          - unique
+          - not_null
+      - name: future_sales
+        description: hedef değişken
+        data_tests:
+          - not_null
+      - name: has_future_purchase
+        data_tests:
+          - not_null
+
+  - name: ml_household_segmentation_features
+    description: segmentasyon özellikleri (grain household_key); tüm dönem, tahmin modelinde kullanılmaz
+    columns:
+      - name: household_key
+        data_tests:
+          - unique
+          - not_null
+
+  - name: ml_coupon_response_dataset
+    description: kupon yanıtı veri seti (grain household_key × campaign_id)
+    data_tests:
+      - unique:
+          arguments:
+            column_name: "concat(cast(household_key as string), '-', cast(campaign_id as string))"
+    columns:
+      - name: redeemed
+        description: hedef değişken
+        data_tests:
+          - not_null
