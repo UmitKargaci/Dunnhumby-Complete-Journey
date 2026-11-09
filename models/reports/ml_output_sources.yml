@@ -1,0 +1,22 @@
+version: 2
+
+# Python (Colab) çıktıları. Tablolar Colab'daki G hücresiyle (ya da C3) yazılır.
+# Dataset, dbt datasetiyle aynı konumda olmalı (BigQuery farklı konumlar arası JOIN'e izin vermez).
+
+sources:
+  - name: ml_output
+    schema: ml_output
+    tables:
+      - name: household_segments
+        config:
+          tags: ['needs_ml_output']
+        description: K-Means segmentleri (tüm dönem verisiyle kuruldu). Kümelemeye girmeyen haneler bu tabloda yoktur.
+        columns:
+          - name: household_key
+            data_tests:
+              - unique
+              - not_null
+          - name: segment_id
+            description: 0 = en yüksek harcamalı segment
+            data_tests:
+              - not_null

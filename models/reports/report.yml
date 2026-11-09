@@ -1,0 +1,171 @@
+version: 2
+
+# Rapor katmanı (Looker Studio / Power BI). Her rpt_ modeli bir dashboard sayfasını besler.
+# Yeni rpt_ modeli eklenince buraya da eklenir; dosyası olmayan model adı yazılırsa dbt
+# "Did not find matching node" uyarısı verir.
+
+models:
+
+  - name: rpt_coupon_response
+    description: >
+      Kupon yanıtı rapor tablosu (grain household_key × campaign_id), H1–H8 için.
+      Özellikler kampanya başlangıcından önceki lookback_days (varsayılan 91 gün = 13 hafta) penceresinden
+      hesaplanır; Python'daki hipotez testleriyle aynı mantıktır.
+    data_tests:
+      - unique:
+          arguments:
+            column_name: "concat(cast(household_key as string), '-', cast(campaign_id as string))"
+    columns:
+      - name: household_key
+        data_tests:
+          - not_null
+      - name: campaign_id
+        data_tests:
+          - not_null
+      - name: campaign_type
+        description: kampanya tipi (TypeA / TypeB / TypeC)
+      - name: start_day
+        description: kampanya başlangıç günü (pencerenin üst sınırı, dahil değil)
+      - name: redeemed
+        description: hedef; hane bu kampanyada en az bir kupon kullandı mı
+        data_tests:
+          - not_null
+      - name: pre_basket_count
+        description: penceredeki sepet sayısı (alışverişi yoksa 0)
+        data_tests:
+          - not_null
+      - name: pre_sales_value
+        description: penceredeki toplam harcama (alışverişi yoksa 0)
+      - name: pre_coupon_basket_count
+        description: penceredeki kuponlu sepet sayısı
+      - name: pre_coupon_basket_ratio
+        description: kuponlu sepet sayısı / sepet sayısı; pencerede alışveriş yoksa boş
+      - name: pre_discount_depth
+        description: toplam indirim / indirim öncesi raf değeri; pencerede alışveriş yoksa boş
+      - name: days_since_last_purchase
+        description: start_day - penceredeki son alışveriş günü; pencerede alışveriş yoksa boş (en fazla lookback_days)
+      - name: bought_coupon_product_before
+        description: kampanyanın kuponlu ürünlerinden birini penceredeki alışverişlerinde aldı mı
+        data_tests:
+          - not_null
+      - name: basket_count_bucket
+        description: sepet sayısı kovası (H1)
+      - name: sales_value_bucket
+        description: harcama kovası (H2)
+      - name: coupon_ratio_bucket
+        description: kuponlu sepet oranı kovası (H3)
+      - name: recency_bucket
+        description: son alışverişten geçen gün kovası (H5)
+      - name: discount_depth_bucket
+        description: indirim derinliği kovası (H6)
+
+  - name: rpt_coupon_response_segments
+    description: >
+      rpt_coupon_response + segment (H8). Grain household_key × campaign_id. Segmentler tüm dönem verisiyle
+      kurulduğu için H8 betimleyici okunmalıdır. ml_output.household_segments tablosu gerekir.
+    config:
+      tags: ['needs_ml_output']
+    data_tests:
+      - unique:
+          arguments:
+            column_name: "concat(cast(household_key as string), '-', cast(campaign_id as string))"
+    columns:
+      - name: segment_id
+        description: K-Means segmenti; kümelemeye girmeyen hanelerde boş
+      - name: segment_name
+        description: "'Segment 0', 'Segment 1' ... ya da segmenti olmayanlar için 'Segment yok'"
+        data_tests:
+          - not_null
+
+  - name: rpt_household_spend
+    description: >
+      Gelecek harcama rapor tablosu (grain household_key), H9–H11. Colab B bölümündeki analiz kümesiyle aynı:
+      17. haftadan cutoff_week'e kadar geçmiş harcama, en az 5 sepetli haneler.
+    columns:
+      - name: household_key
+        data_tests:
+          - unique
+          - not_null
+      - name: past_sales_w17
+        description: 17.–cutoff_week arası toplam harcama (ısınma dönemi hariç)
+        data_tests:
+          - not_null
+      - name: future_sales
+        description: cutoff_week sonrası horizon_weeks haftalık harcama (hedef)
+        data_tests:
+          - not_null
+      - name: last_13w_sales_share
+        description: son 13 haftanın geçmiş harcamadaki payı (mart tablosundan)
+      - name: private_brand_share
+        description: markası bilinen harcamada market markası payı; markası bilinen harcama yoksa boş
+      - name: past_sales_bucket
+        description: geçmiş harcama kovası (H9)
+      - name: last_13w_share_bucket
+        description: son 13 hafta payı kovası (H10)
+      - name: private_brand_share_bucket
+        description: market markası payı kovası (H11)
+
+  - name: rpt_household_segment_profile
+    description: >
+      Segment profili rapor tablosu (grain household_key), H12 ve H13. Segmentler tüm dönem verisiyle kuruldu,
+      farklar betimleyici okunmalıdır. ml_output.household_segments tablosu gerekir.
+    config:
+      tags: ['needs_ml_output']
+    columns:
+      - name: household_key
+        data_tests:
+          - unique
+          - not_null
+      - name: segment_name
+        description: "'Segment 0', 'Segment 1' ... ya da segmenti olmayanlar için 'Segment yok'"
+        data_tests:
+          - not_null
+      - name: avg_categories_per_basket
+        description: sepet başına ortalama farklı kategori sayısı (H12)
+      - name: grocery_share
+        description: market (GROCERY) harcama payı
+      - name: fresh_share
+        description: taze (FRESH) harcama payı
+      - name: drug_gm_share
+        description: kişisel bakım (DRUG_GM) harcama payı
+
+  - name: rpt_campaign_category
+    description: >
+      Kampanya × kupon kategorisi (grain campaign_id × cat), H15 ısı haritası ve H7 kampanya tablosu için.
+      Kampanya düzeyi sütunları her kategori satırında tekrar eder.
+    data_tests:
+      - unique:
+          arguments:
+            column_name: "concat(cast(campaign_id as string), '-', cat)"
+    columns:
+      - name: campaign_id
+        data_tests:
+          - not_null
+      - name: cat
+        data_tests:
+          - not_null
+      - name: product_share
+        description: kampanyadaki kuponlu ürünlerin bu kategorideki payı (0–1)
+      - name: household_redemption_rate
+        description: kampanyayı alan hanelerin kaçı en az bir kupon kullandı (kampanya düzeyi)
+
+  - name: rpt_daily_sales
+    description: >
+      Günlük satış (grain day), genel özet sayfası için. Satışsız günler 0. Oranlar toplamlardan rapor aracında hesaplanır.
+    columns:
+      - name: day
+        data_tests:
+          - unique
+          - not_null
+      - name: date_day
+        description: temsili tarih (1. gün = 2020-01-01)
+      - name: sales_value
+        description: günlük toplam harcama
+        data_tests:
+          - not_null
+      - name: basket_count
+        description: günlük sepet sayısı
+        data_tests:
+          - not_null
+      - name: coupon_basket_count
+        description: kupon indirimi içeren sepet sayısı
